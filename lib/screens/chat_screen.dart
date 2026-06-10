@@ -215,7 +215,12 @@ class _ComposerState extends State<_Composer> {
     setState(() => _busy = true);
     try {
       final picker = ImagePicker();
-      final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 45,
+        maxWidth: 960,
+        maxHeight: 1280,
+      );
       if (picked == null) return;
       final bytes = await picked.readAsBytes();
       final encoded = base64Encode(bytes);

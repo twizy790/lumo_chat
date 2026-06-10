@@ -121,7 +121,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _pickAvatar() async {
     final picker = ImagePicker();
-    final result = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final result = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 45,
+      maxWidth: 512,
+      maxHeight: 512,
+    );
     if (result == null) return;
     final bytes = await result.readAsBytes();
     setState(() => _avatarData = base64Encode(bytes));

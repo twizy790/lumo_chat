@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "191430390917",
+    "project_id": "lumo-chat-46987",
+    "storage_bucket": "lumo-chat-46987.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:191430390917:android:5a1ad2f19e6bff9abce5ec",
+        "android_client_info": {
+          "package_name": "com.example.lumo_chat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBLVPlwAZRaBga8ELTvaboNttugIEguUO8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

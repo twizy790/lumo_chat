@@ -27,11 +27,15 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bg = isMe
-        ? const LinearGradient(colors: [Color(0xFF1B998B), Color(0xFF61D7C8)])
+        ? const LinearGradient(colors: [Color(0xFF7C3AED), Color(0xFFB14CFF)])
         : LinearGradient(
             colors: [
-              Theme.of(context).colorScheme.surfaceContainerHighest,
-              Theme.of(context).colorScheme.surface,
+              Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF251637)
+                  : Theme.of(context).colorScheme.surfaceContainerHighest,
+              Theme.of(context).brightness == Brightness.dark
+                  ? const Color(0xFF1A1029)
+                  : Theme.of(context).colorScheme.surface,
             ],
           );
 
@@ -57,9 +61,9 @@ class MessageBubble extends StatelessWidget {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  color: Colors.black.withValues(alpha: 0.16),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
                 ),
               ],
             ),
@@ -82,11 +86,7 @@ class MessageBubble extends StatelessWidget {
                 if (message.imageData != null) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(14),
-                    child: Image.memory(
-                      base64Decode(message.imageData!),
-                      width: 240,
-                      fit: BoxFit.cover,
-                    ),
+                    child: _messageImage(message.imageData!),
                   ),
                   if (message.text.isNotEmpty) const SizedBox(height: 8),
                 ],
@@ -124,5 +124,12 @@ class MessageBubble extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Widget _messageImage(String value) {
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return Image.network(value, width: 240, fit: BoxFit.cover);
+    }
+    return Image.memory(base64Decode(value), width: 240, fit: BoxFit.cover);
   }
 }

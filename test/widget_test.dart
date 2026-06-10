@@ -13,7 +13,7 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
     SharedPreferences.setMockInitialValues({});
 
-    final store = await MessengerStore.load();
+    final store = await MessengerStore.memory();
     final controller = AppController(store);
     await controller.restoreSession();
 

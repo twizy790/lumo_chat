@@ -128,7 +128,7 @@ class DialogsScreen extends StatelessWidget {
                           context: context,
                           builder: (context) => AlertDialog(
                             title: const Text('Удалить диалог?'),
-                            content: const Text('Сообщения и переписка будут удалены только локально.'),
+                            content: const Text('Сообщения и переписка будут удалены из Firebase.'),
                             actions: [
                               TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
                               FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить')),

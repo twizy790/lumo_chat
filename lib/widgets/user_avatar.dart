@@ -21,8 +21,8 @@ class UserAvatar extends StatelessWidget {
     final initials = _initials(name);
     final gradient = LinearGradient(
       colors: isGroup
-          ? [const Color(0xFF7C8CFF), const Color(0xFF1B998B)]
-          : [const Color(0xFF1B998B), const Color(0xFF5DE2D1)],
+          ? [const Color(0xFFC77DFF), const Color(0xFF5B21B6)]
+          : [const Color(0xFF8B5CF6), const Color(0xFFEC4899)],
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
     );
@@ -35,9 +35,9 @@ class UserAvatar extends StatelessWidget {
         gradient: avatarData == null ? gradient : null,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF8B5CF6).withValues(alpha: 0.22),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -53,12 +53,16 @@ class UserAvatar extends StatelessWidget {
                   ),
                 ),
               )
-            : Image.memory(
-                base64Decode(avatarData!),
-                fit: BoxFit.cover,
-              ),
+            : _avatarImage(avatarData!),
       ),
     );
+  }
+
+  Widget _avatarImage(String value) {
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return Image.network(value, fit: BoxFit.cover);
+    }
+    return Image.memory(base64Decode(value), fit: BoxFit.cover);
   }
 
   String _initials(String value) {

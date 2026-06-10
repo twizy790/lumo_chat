@@ -1,0 +1,26 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "lumo-chat-46987",
+          "appId": "1:191430390917:android:5a1ad2f19e6bff9abce5ec",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "lumo-chat-46987",
+          "configurations": {
+            "android": "1:191430390917:android:5a1ad2f19e6bff9abce5ec",
+            "web": "1:191430390917:web:ed6c75d8424efacebce5ec",
+            "windows": "1:191430390917:web:034b91ecb84287efbce5ec"
+          }
+        }
+      }
+    }
+  }
+}

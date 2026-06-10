@@ -16,7 +16,7 @@ class AuthScreen extends StatelessWidget {
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            colors: [Color(0xFF09121B), Color(0xFF14263B), Color(0xFF1B998B)],
+            colors: [Color(0xFF0C0614), Color(0xFF24103D), Color(0xFF4B1D71)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -68,7 +68,7 @@ class AuthScreen extends StatelessWidget {
                             'Учебный мобильный мессенджер с профилем, чатами и группами',
                             textAlign: TextAlign.center,
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.82),
+                              color: const Color(0xFFE9D5FF).withValues(alpha: 0.9),
                               height: 1.35,
                             ),
                           ),

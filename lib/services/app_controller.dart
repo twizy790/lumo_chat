@@ -1,8 +1,7 @@
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:crypto/crypto.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import '../models/app_user.dart';
 import '../models/chat_dialog.dart';
@@ -14,6 +13,7 @@ class AppController extends ChangeNotifier {
 
   final MessengerStore _store;
   final Random _random = Random();
+  static const _maxInlineImageChars = 700000;
 
   AppUser? get currentUser =>
       _store.users.where((user) => user.id == _store.currentUserId).firstOrNull;
@@ -72,15 +72,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> restoreSession() async {
-    final sessionId = _store.currentUserId;
-    if (sessionId != null) {
-      final user = _store.users.where((user) => user.id == sessionId).firstOrNull;
-      if (user != null) {
-        await _touchUser(user.id);
-      } else {
-        await _store.saveSession(null);
-      }
-    }
+    await _store.refresh();
     notifyListeners();
   }
 
@@ -93,39 +85,35 @@ class AppController extends ChangeNotifier {
     if (normalizedEmail.isEmpty || password.isEmpty || name.trim().isEmpty) {
       throw MessengerException('Заполните имя, email и пароль.');
     }
-    if (_store.users.any((user) => user.email.toLowerCase() == normalizedEmail)) {
-      throw MessengerException('Пользователь с таким email уже существует.');
+    try {
+      await _store.registerUser(
+        name: name.trim(),
+        email: normalizedEmail,
+        password: password,
+      );
+      notifyListeners();
+    } on FirebaseAuthException catch (error) {
+      throw MessengerException(_authErrorText(error));
+    } on FirebaseStoreException catch (error) {
+      throw MessengerException(error.message);
     }
-
-    final user = AppUser(
-      id: _generateId('user'),
-      name: name.trim(),
-      email: normalizedEmail,
-      passwordHash: _hashPassword(password),
-      bio: 'Расскажите о себе в профиле',
-    );
-    _store.users = [..._store.users, user];
-    await _store.saveUsers(_store.users);
-    await _store.saveSession(user.id);
-    await _touchUser(user.id);
-    notifyListeners();
   }
 
   Future<void> login({
     required String email,
     required String password,
   }) async {
-    final normalizedEmail = email.trim().toLowerCase();
-    final user = _store.users.where((item) => item.email.toLowerCase() == normalizedEmail).firstOrNull;
-    if (user == null) {
-      throw MessengerException('Аккаунт не найден.');
+    try {
+      await _store.loginUser(
+        email: email.trim().toLowerCase(),
+        password: password,
+      );
+      notifyListeners();
+    } on FirebaseAuthException catch (error) {
+      throw MessengerException(_authErrorText(error));
+    } on FirebaseStoreException catch (error) {
+      throw MessengerException(error.message);
     }
-    if (user.passwordHash != _hashPassword(password)) {
-      throw MessengerException('Неверный пароль.');
-    }
-    await _store.saveSession(user.id);
-    await _touchUser(user.id);
-    notifyListeners();
   }
 
   Future<void> logout() async {
@@ -140,6 +128,9 @@ class AppController extends ChangeNotifier {
   }) async {
     final me = currentUser;
     if (me == null) return;
+    if (avatarData != null) {
+      _assertInlineImageSize(avatarData, 'Аватар слишком большой для хранения в Firestore. Выберите изображение поменьше.');
+    }
     final updated = me.copyWith(
       name: name.trim().isEmpty ? me.name : name.trim(),
       bio: bio.trim(),
@@ -222,10 +213,14 @@ class AppController extends ChangeNotifier {
     if (trimmed.isEmpty && imageData == null) {
       throw MessengerException('Введите сообщение или добавьте изображение.');
     }
+    if (imageData != null) {
+      _assertInlineImageSize(imageData, 'Изображение слишком большое для хранения в Firestore. Выберите изображение поменьше.');
+    }
     final dialog = _dialogById(dialogId);
     if (dialog == null) throw MessengerException('Диалог не найден.');
+    final messageId = _generateId('msg');
     final message = ChatMessage(
-      id: _generateId('msg'),
+      id: messageId,
       dialogId: dialog.id,
       authorId: me.id,
       text: trimmed,
@@ -267,18 +262,8 @@ class AppController extends ChangeNotifier {
   Future<void> deleteDialog(String dialogId) async {
     final dialog = _dialogById(dialogId);
     if (dialog == null) return;
-    _store.dialogs = _store.dialogs.where((item) => item.id != dialogId).toList();
-    _store.messages = _store.messages.where((message) => message.dialogId != dialogId).toList();
-    await _store.saveDialogs(_store.dialogs);
-    await _store.saveMessages(_store.messages);
+    await _store.deleteDialog(dialogId);
     notifyListeners();
-  }
-
-  Future<void> _touchUser(String userId) async {
-    final user = _userById(userId);
-    if (user == null) return;
-    _replaceUser(user.copyWith(lastSeenAt: DateTime.now()));
-    await _store.saveUsers(_store.users);
   }
 
   void _replaceUser(AppUser user) {
@@ -311,12 +296,31 @@ class AppController extends ChangeNotifier {
     );
   }
 
-  String _hashPassword(String password) {
-    return sha256.convert(utf8.encode(password)).toString();
+  String _generateId(String prefix) {
+    final timePart = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final randomPart = [
+      _random.nextInt(0x100000),
+      _random.nextInt(0x100000),
+    ].map((value) => value.toRadixString(36).padLeft(4, '0')).join();
+    return '$prefix-$timePart-$randomPart';
   }
 
-  String _generateId(String prefix) {
-    return '$prefix-${DateTime.now().microsecondsSinceEpoch}-${_random.nextInt(1 << 32)}';
+  String _authErrorText(FirebaseAuthException error) {
+    return switch (error.code) {
+      'email-already-in-use' => 'Пользователь с таким email уже существует.',
+      'invalid-email' => 'Некорректный email.',
+      'weak-password' => 'Пароль слишком простой. Используйте минимум 6 символов.',
+      'user-not-found' => 'Аккаунт не найден.',
+      'wrong-password' => 'Неверный пароль.',
+      'invalid-credential' => 'Неверный email или пароль.',
+      _ => error.message ?? 'Ошибка Firebase Authentication.',
+    };
+  }
+
+  void _assertInlineImageSize(String data, String message) {
+    if (data.length > _maxInlineImageChars) {
+      throw MessengerException(message);
+    }
   }
 }
 

@@ -12,8 +12,11 @@ dependencies:
     sdk: flutter
   shared_preferences: ^2.2.3
   image_picker: ^1.1.2
-  crypto: ^3.0.3
   google_fonts: ^6.2.1
+  firebase_core: ^4.10.0
+  firebase_auth: ^6.5.2
+  cloud_firestore: ^6.5.0
+  firebase_messaging: ^16.3.0
 
 dev_dependencies:
   flutter_test:

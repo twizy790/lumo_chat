@@ -1,5 +1,6 @@
-import 'dart:convert';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_user.dart';
@@ -7,72 +8,177 @@ import '../models/chat_dialog.dart';
 import '../models/chat_message.dart';
 
 class MessengerStore {
-  MessengerStore._(this._prefs);
+  MessengerStore._({
+    required SharedPreferences prefs,
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    FirebaseMessaging? messaging,
+  })  : _prefs = prefs,
+        _auth = auth,
+        _firestore = firestore,
+        _messaging = messaging;
 
-  static const _usersKey = 'lumo.users';
-  static const _dialogsKey = 'lumo.dialogs';
-  static const _messagesKey = 'lumo.messages';
-  static const _sessionKey = 'lumo.session.userId';
   static const _themeKey = 'lumo.theme.mode';
 
   final SharedPreferences _prefs;
+  final FirebaseAuth? _auth;
+  final FirebaseFirestore? _firestore;
+  final FirebaseMessaging? _messaging;
 
   List<AppUser> users = [];
   List<ChatDialog> dialogs = [];
   List<ChatMessage> messages = [];
   String? currentUserId;
-  ThemeModeValue themeMode = ThemeModeValue.light;
+  ThemeModeValue themeMode = ThemeModeValue.dark;
+
+  bool get isFirebaseEnabled => _auth != null && _firestore != null;
+
+  CollectionReference<Map<String, dynamic>> get _usersRef => _firestore!.collection('users');
+  CollectionReference<Map<String, dynamic>> get _dialogsRef => _firestore!.collection('dialogs');
+  CollectionReference<Map<String, dynamic>> get _messagesRef => _firestore!.collection('messages');
 
   static Future<MessengerStore> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final store = MessengerStore._(prefs);
-    store.users = _readList(
-      prefs.getString(_usersKey),
-      (json) => AppUser.fromJson(json as Map<String, dynamic>),
+    final store = MessengerStore._(
+      prefs: prefs,
+      auth: FirebaseAuth.instance,
+      firestore: FirebaseFirestore.instance,
+      messaging: FirebaseMessaging.instance,
     );
-    store.dialogs = _readList(
-      prefs.getString(_dialogsKey),
-      (json) => ChatDialog.fromJson(json as Map<String, dynamic>),
-    );
-    store.messages = _readList(
-      prefs.getString(_messagesKey),
-      (json) => ChatMessage.fromJson(json as Map<String, dynamic>),
-    );
-    store.currentUserId = prefs.getString(_sessionKey);
     store.themeMode = themeModeFromName(prefs.getString(_themeKey));
+    store.currentUserId = store._auth!.currentUser?.uid;
+    await store.refresh();
+    await store.registerPushToken();
     return store;
   }
 
-  static List<T> _readList<T>(
-    String? raw,
-    T Function(dynamic json) fromJson,
-  ) {
-    if (raw == null || raw.isEmpty) return <T>[];
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded.map(fromJson).toList(growable: true);
+  static Future<MessengerStore> memory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return MessengerStore._(prefs: prefs);
+  }
+
+  Future<void> refresh() async {
+    if (!isFirebaseEnabled) return;
+    await _loadUsers();
+    await _loadDialogs();
+    await _loadMessages();
+    currentUserId = _auth!.currentUser?.uid;
+  }
+
+  Future<AppUser> registerUser({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final credentials = await _auth!.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final firebaseUser = credentials.user;
+    if (firebaseUser == null) {
+      throw const FirebaseStoreException('Не удалось создать аккаунт.');
+    }
+
+    await firebaseUser.updateDisplayName(name);
+    final user = AppUser(
+      id: firebaseUser.uid,
+      name: name,
+      email: email,
+      passwordHash: '',
+      bio: 'Расскажите о себе в профиле',
+    );
+    await _usersRef.doc(user.id).set(_userToFirestore(user));
+    currentUserId = user.id;
+    await refresh();
+    await registerPushToken();
+    return user;
+  }
+
+  Future<AppUser> loginUser({
+    required String email,
+    required String password,
+  }) async {
+    final credentials = await _auth!.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final firebaseUser = credentials.user;
+    if (firebaseUser == null) {
+      throw const FirebaseStoreException('Не удалось войти в аккаунт.');
+    }
+
+    currentUserId = firebaseUser.uid;
+    await refresh();
+    await registerPushToken();
+
+    final matches = users.where((user) => user.id == firebaseUser.uid);
+    final existing = matches.isEmpty ? null : matches.first;
+    if (existing != null) return existing;
+
+    final created = AppUser(
+      id: firebaseUser.uid,
+      name: firebaseUser.displayName ?? firebaseUser.email ?? 'Пользователь',
+      email: firebaseUser.email ?? email,
+      passwordHash: '',
+      bio: '',
+    );
+    await _usersRef.doc(created.id).set(_userToFirestore(created));
+    await refresh();
+    return created;
+  }
+
+  Future<void> registerPushToken() async {
+    if (_messaging == null || currentUserId == null) return;
+    try {
+      await _messaging.requestPermission();
+      final token = await _messaging.getToken();
+      if (token == null) return;
+      await _usersRef.doc(currentUserId).set(
+        {
+          'pushTokens': FieldValue.arrayUnion([token]),
+          'lastSeenAt': Timestamp.fromDate(DateTime.now()),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {
+      // Push permissions can be unavailable on desktop; chat data still works.
+    }
   }
 
   Future<void> saveUsers(List<AppUser> value) async {
     users = value;
-    await _prefs.setString(_usersKey, jsonEncode(value.map((e) => e.toJson()).toList()));
+    if (!isFirebaseEnabled) return;
+    final batch = _firestore!.batch();
+    for (final user in value) {
+      batch.set(_usersRef.doc(user.id), _userToFirestore(user), SetOptions(merge: true));
+    }
+    await batch.commit();
   }
 
   Future<void> saveDialogs(List<ChatDialog> value) async {
     dialogs = value;
-    await _prefs.setString(_dialogsKey, jsonEncode(value.map((e) => e.toJson()).toList()));
+    if (!isFirebaseEnabled) return;
+    final batch = _firestore!.batch();
+    for (final dialog in value) {
+      batch.set(_dialogsRef.doc(dialog.id), _dialogToFirestore(dialog), SetOptions(merge: true));
+    }
+    await batch.commit();
   }
 
   Future<void> saveMessages(List<ChatMessage> value) async {
     messages = value;
-    await _prefs.setString(_messagesKey, jsonEncode(value.map((e) => e.toJson()).toList()));
+    if (!isFirebaseEnabled) return;
+    final batch = _firestore!.batch();
+    for (final message in value) {
+      batch.set(_messagesRef.doc(message.id), _messageToFirestore(message), SetOptions(merge: true));
+    }
+    await batch.commit();
   }
 
   Future<void> saveSession(String? userId) async {
     currentUserId = userId;
-    if (userId == null) {
-      await _prefs.remove(_sessionKey);
-    } else {
-      await _prefs.setString(_sessionKey, userId);
+    if (userId == null && _auth != null) {
+      await _auth.signOut();
     }
   }
 
@@ -80,6 +186,121 @@ class MessengerStore {
     themeMode = mode;
     await _prefs.setString(_themeKey, mode.name);
   }
+
+  Future<void> deleteDialog(String dialogId) async {
+    dialogs = dialogs.where((dialog) => dialog.id != dialogId).toList();
+    messages = messages.where((message) => message.dialogId != dialogId).toList();
+    if (!isFirebaseEnabled) return;
+
+    final batch = _firestore!.batch();
+    batch.delete(_dialogsRef.doc(dialogId));
+    final snapshots = await _messagesRef.where('dialogId', isEqualTo: dialogId).get();
+    for (final doc in snapshots.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
+  Future<void> _loadUsers() async {
+    final snapshot = await _usersRef.get();
+    users = snapshot.docs.map((doc) {
+      final data = _withId(doc.id, doc.data());
+      return AppUser.fromJson(_normalizeFirestoreData(data));
+    }).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  Future<void> _loadDialogs() async {
+    final currentId = _auth!.currentUser?.uid;
+    if (currentId == null) {
+      dialogs = [];
+      return;
+    }
+    final snapshot = await _dialogsRef.where('participantIds', arrayContains: currentId).get();
+    dialogs = snapshot.docs.map((doc) {
+      final data = _withId(doc.id, doc.data());
+      return ChatDialog.fromJson(_normalizeFirestoreData(data));
+    }).toList()
+      ..sort((a, b) {
+        final at = a.lastMessageAt ?? a.createdAt;
+        final bt = b.lastMessageAt ?? b.createdAt;
+        return bt.compareTo(at);
+      });
+  }
+
+  Future<void> _loadMessages() async {
+    final dialogIds = dialogs.map((dialog) => dialog.id).toSet();
+    if (dialogIds.isEmpty) {
+      messages = [];
+      return;
+    }
+    final allMessages = <ChatMessage>[];
+    final ids = dialogIds.toList();
+    for (var start = 0; start < ids.length; start += 10) {
+      final chunk = ids.skip(start).take(10).toList();
+      final snapshot = await _messagesRef.where('dialogId', whereIn: chunk).get();
+      allMessages.addAll(
+        snapshot.docs.map((doc) {
+          final data = _withId(doc.id, doc.data());
+          return ChatMessage.fromJson(_normalizeFirestoreData(data));
+        }),
+      );
+    }
+    messages = allMessages..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+  }
+
+  Map<String, dynamic> _userToFirestore(AppUser user) {
+    return {
+      'name': user.name,
+      'email': user.email,
+      'avatarData': user.avatarData,
+      'bio': user.bio,
+      'createdAt': Timestamp.fromDate(user.createdAt),
+      'lastSeenAt': Timestamp.fromDate(user.lastSeenAt),
+    };
+  }
+
+  Map<String, dynamic> _dialogToFirestore(ChatDialog dialog) {
+    return {
+      'participantIds': dialog.participantIds,
+      'isGroup': dialog.isGroup,
+      'title': dialog.title,
+      'createdAt': Timestamp.fromDate(dialog.createdAt),
+      'lastMessagePreview': dialog.lastMessagePreview,
+      'lastMessageAt': dialog.lastMessageAt == null ? null : Timestamp.fromDate(dialog.lastMessageAt!),
+      'lastMessageSenderId': dialog.lastMessageSenderId,
+    };
+  }
+
+  Map<String, dynamic> _messageToFirestore(ChatMessage message) {
+    return {
+      'dialogId': message.dialogId,
+      'authorId': message.authorId,
+      'text': message.text,
+      'imageData': message.imageData,
+      'sentAt': Timestamp.fromDate(message.sentAt),
+      'readBy': message.readBy,
+    };
+  }
+
+  Map<String, dynamic> _withId(String id, Map<String, dynamic> data) {
+    return {'id': id, ...data};
+  }
+
+  Map<String, dynamic> _normalizeFirestoreData(Map<String, dynamic> data) {
+    return data.map((key, value) {
+      if (value is Timestamp) {
+        return MapEntry(key, value.toDate().toIso8601String());
+      }
+      return MapEntry(key, value);
+    });
+  }
+}
+
+class FirebaseStoreException implements Exception {
+  const FirebaseStoreException(this.message);
+
+  final String message;
 }
 
 enum ThemeModeValue { light, dark, system }
@@ -87,6 +308,6 @@ enum ThemeModeValue { light, dark, system }
 ThemeModeValue themeModeFromName(String? value) {
   return ThemeModeValue.values.firstWhere(
     (mode) => mode.name == value,
-    orElse: () => ThemeModeValue.light,
+    orElse: () => ThemeModeValue.dark,
   );
 }
