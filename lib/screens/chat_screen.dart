@@ -7,6 +7,7 @@ import '../models/app_user.dart';
 import '../models/chat_dialog.dart';
 import '../models/chat_message.dart';
 import '../services/app_controller.dart';
+import '../utils/iterable_x.dart';
 import '../widgets/app_scope.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/section_card.dart';
@@ -70,15 +71,20 @@ class _ChatScreenState extends State<ChatScreen> {
               isGroup: dialog.isGroup,
             ),
             const SizedBox(width: 12),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(dialog.isGroup ? dialog.title : participantsText),
-                Text(
-                  dialog.isGroup ? participantsText : 'Личный чат',
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    dialog.isGroup ? dialog.title : participantsText,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    dialog.isGroup ? participantsText : 'Личный чат',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -89,9 +95,17 @@ class _ChatScreenState extends State<ChatScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               child: SectionCard(
-                child: Text(
-                  'Групповой чат: ${dialog.participantIds.length} участников',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
+                child: Row(
+                  children: [
+                    const Icon(Icons.groups_rounded),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Групповой чат: ${dialog.participantIds.length} участников',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -133,7 +147,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final seenCount = message.readBy.where((id) => id != myId).length;
     if (seenCount == 0) return '✓';
     if (!dialog.isGroup && seenCount > 0) return '✓✓';
-    return 'seen $seenCount/${others.length}';
+    return 'прочитано $seenCount/${others.length}';
   }
 }
 
@@ -161,35 +175,46 @@ class _ComposerState extends State<_Composer> {
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            IconButton(
-              onPressed: _busy ? null : _pickImage,
-              icon: const Icon(Icons.add_photo_alternate_outlined),
-            ),
-            Expanded(
-              child: TextField(
-                controller: widget.textController,
-                minLines: 1,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  hintText: 'Написать сообщение...',
+        child: SectionCard(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              IconButton(
+                onPressed: _busy ? null : _pickImage,
+                icon: const Icon(Icons.add_photo_alternate_outlined),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: widget.textController,
+                  minLines: 1,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    hintText: 'Написать сообщение...',
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: _busy ? null : _sendText,
-              child: _busy
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.send),
-            ),
-          ],
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _busy ? null : _sendText,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(52, 52),
+                  padding: EdgeInsets.zero,
+                ),
+                child: _busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send_rounded),
+              ),
+            ],
+          ),
         ),
       ),
     );

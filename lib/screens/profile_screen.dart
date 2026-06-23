@@ -6,6 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import '../services/app_controller.dart';
 import '../utils/formatters.dart';
 import '../widgets/app_scope.dart';
+import '../widgets/content_frame.dart';
+import '../widgets/dashboard_header.dart';
 import '../widgets/section_card.dart';
 import '../widgets/user_avatar.dart';
 
@@ -49,73 +51,87 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final me = controller.currentUser;
     if (me == null) return const SizedBox.shrink();
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        SectionCard(
-          child: Column(
-            children: [
-              UserAvatar(name: _name.text.isEmpty ? me.name : _name.text, avatarData: _avatarData, size: 92),
-              const SizedBox(height: 12),
-              TextButton.icon(
-                onPressed: _pickAvatar,
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Изменить аватар'),
-              ),
-            ],
+    return ContentFrame(
+      child: ListView(
+        children: [
+          DashboardHeader(
+            eyebrow: 'Your profile',
+            title: _name.text.isEmpty ? me.name : _name.text,
+            subtitle: me.bio.isEmpty
+                ? 'Заполните информацию о себе, чтобы профиль выглядел завершённо.'
+                : me.bio,
+            trailing: UserAvatar(
+              name: _name.text.isEmpty ? me.name : _name.text,
+              avatarData: _avatarData,
+              size: 72,
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              TextField(
-                controller: _name,
-                decoration: const InputDecoration(labelText: 'Имя'),
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _bio,
-                minLines: 3,
-                maxLines: 5,
-                decoration: const InputDecoration(labelText: 'Краткая информация'),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _busy ? null : _save,
-                child: _busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Сохранить профиль'),
-              ),
-            ],
+          const SizedBox(height: 16),
+          SectionCard(
+            child: Column(
+              children: [
+                UserAvatar(name: _name.text.isEmpty ? me.name : _name.text, avatarData: _avatarData, size: 92),
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: _pickAvatar,
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Изменить аватар'),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Email: ${me.email}'),
-              const SizedBox(height: 8),
-              Text('Последний вход: ${formatDateTimeCompact(me.lastSeenAt)}'),
-            ],
+          const SizedBox(height: 16),
+          SectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: _name,
+                  decoration: const InputDecoration(labelText: 'Имя'),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _bio,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(labelText: 'Краткая информация'),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _busy ? null : _save,
+                  child: _busy
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Сохранить профиль'),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 16),
-        FilledButton.tonalIcon(
-          onPressed: () async {
-            await controller.logout();
-          },
-          icon: const Icon(Icons.logout),
-          label: const Text('Выйти из аккаунта'),
-        ),
-      ],
+          const SizedBox(height: 16),
+          SectionCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Email: ${me.email}'),
+                const SizedBox(height: 8),
+                Text('Последний вход: ${formatDateTimeCompact(me.lastSeenAt)}'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton.tonalIcon(
+            onPressed: () async {
+              await controller.logout();
+            },
+            icon: const Icon(Icons.logout),
+            label: const Text('Выйти из аккаунта'),
+          ),
+        ],
+      ),
     );
   }
 

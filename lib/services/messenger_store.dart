@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/app_user.dart';
 import '../models/chat_dialog.dart';
 import '../models/chat_message.dart';
+import '../utils/iterable_x.dart';
 
-class MessengerStore {
+class MessengerStore extends ChangeNotifier {
   MessengerStore._({
     required SharedPreferences prefs,
     FirebaseAuth? auth,
@@ -24,6 +28,11 @@ class MessengerStore {
   final FirebaseAuth? _auth;
   final FirebaseFirestore? _firestore;
   final FirebaseMessaging? _messaging;
+
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _usersSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _dialogsSubscription;
+  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>> _messageSubscriptions = [];
+  final Map<String, ChatMessage> _messageById = {};
 
   List<AppUser> users = [];
   List<ChatDialog> dialogs = [];
@@ -59,10 +68,12 @@ class MessengerStore {
 
   Future<void> refresh() async {
     if (!isFirebaseEnabled) return;
+    currentUserId = _auth!.currentUser?.uid;
     await _loadUsers();
     await _loadDialogs();
     await _loadMessages();
-    currentUserId = _auth!.currentUser?.uid;
+    await _bindRealtime();
+    notifyListeners();
   }
 
   Future<AppUser> registerUser({
@@ -111,8 +122,7 @@ class MessengerStore {
     await refresh();
     await registerPushToken();
 
-    final matches = users.where((user) => user.id == firebaseUser.uid);
-    final existing = matches.isEmpty ? null : matches.first;
+    final existing = users.where((user) => user.id == firebaseUser.uid).firstOrNull;
     if (existing != null) return existing;
 
     final created = AppUser(
@@ -141,7 +151,7 @@ class MessengerStore {
         SetOptions(merge: true),
       );
     } catch (_) {
-      // Push permissions can be unavailable on desktop; chat data still works.
+      // На десктопе и web токен или разрешения могут быть недоступны.
     }
   }
 
@@ -177,9 +187,18 @@ class MessengerStore {
 
   Future<void> saveSession(String? userId) async {
     currentUserId = userId;
-    if (userId == null && _auth != null) {
-      await _auth.signOut();
+    if (userId == null) {
+      dialogs = [];
+      messages = [];
+      _messageById.clear();
+      await _cancelDialogAndMessageSubscriptions();
+      if (_auth != null) {
+        await _auth.signOut();
+      }
+      notifyListeners();
+      return;
     }
+    await _bindRealtime();
   }
 
   Future<void> saveThemeMode(ThemeModeValue mode) async {
@@ -190,6 +209,8 @@ class MessengerStore {
   Future<void> deleteDialog(String dialogId) async {
     dialogs = dialogs.where((dialog) => dialog.id != dialogId).toList();
     messages = messages.where((message) => message.dialogId != dialogId).toList();
+    _messageById.removeWhere((_, message) => message.dialogId == dialogId);
+    notifyListeners();
     if (!isFirebaseEnabled) return;
 
     final batch = _firestore!.batch();
@@ -199,6 +220,87 @@ class MessengerStore {
       batch.delete(doc.reference);
     }
     await batch.commit();
+  }
+
+  Future<void> _bindRealtime() async {
+    if (!isFirebaseEnabled) return;
+    _usersSubscription ??= _usersRef.snapshots().listen((snapshot) {
+      users = snapshot.docs.map((doc) {
+        final data = _withId(doc.id, doc.data());
+        return AppUser.fromJson(_normalizeFirestoreData(data));
+      }).toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      notifyListeners();
+    });
+
+    await _cancelDialogAndMessageSubscriptions();
+
+    final uid = currentUserId;
+    if (uid == null) {
+      dialogs = [];
+      messages = [];
+      _messageById.clear();
+      notifyListeners();
+      return;
+    }
+
+    _dialogsSubscription =
+        _dialogsRef.where('participantIds', arrayContains: uid).snapshots().listen((snapshot) {
+      dialogs = snapshot.docs.map((doc) {
+        final data = _withId(doc.id, doc.data());
+        return ChatDialog.fromJson(_normalizeFirestoreData(data));
+      }).toList()
+        ..sort((a, b) {
+          final at = a.lastMessageAt ?? a.createdAt;
+          final bt = b.lastMessageAt ?? b.createdAt;
+          return bt.compareTo(at);
+        });
+
+      unawaited(_bindMessageSubscriptions());
+      notifyListeners();
+    });
+  }
+
+  Future<void> _bindMessageSubscriptions() async {
+    for (final subscription in _messageSubscriptions) {
+      await subscription.cancel();
+    }
+    _messageSubscriptions.clear();
+    _messageById.clear();
+
+    final ids = dialogs.map((dialog) => dialog.id).toList();
+    if (ids.isEmpty) {
+      messages = [];
+      notifyListeners();
+      return;
+    }
+
+    for (var start = 0; start < ids.length; start += 10) {
+      final chunk = ids.skip(start).take(10).toList();
+      final chunkSet = chunk.toSet();
+      final subscription = _messagesRef.where('dialogId', whereIn: chunk).snapshots().listen(
+        (snapshot) {
+          _messageById.removeWhere((_, message) => chunkSet.contains(message.dialogId));
+          for (final doc in snapshot.docs) {
+            final data = _withId(doc.id, doc.data());
+            final message = ChatMessage.fromJson(_normalizeFirestoreData(data));
+            _messageById[message.id] = message;
+          }
+          messages = _messageById.values.toList()..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+          notifyListeners();
+        },
+      );
+      _messageSubscriptions.add(subscription);
+    }
+  }
+
+  Future<void> _cancelDialogAndMessageSubscriptions() async {
+    await _dialogsSubscription?.cancel();
+    _dialogsSubscription = null;
+    for (final subscription in _messageSubscriptions) {
+      await subscription.cancel();
+    }
+    _messageSubscriptions.clear();
   }
 
   Future<void> _loadUsers() async {
@@ -294,6 +396,16 @@ class MessengerStore {
       }
       return MapEntry(key, value);
     });
+  }
+
+  @override
+  void dispose() {
+    _usersSubscription?.cancel();
+    _dialogsSubscription?.cancel();
+    for (final subscription in _messageSubscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
   }
 }
 

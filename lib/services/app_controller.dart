@@ -1,15 +1,18 @@
 import 'dart:math';
 
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
 import '../models/app_user.dart';
 import '../models/chat_dialog.dart';
 import '../models/chat_message.dart';
+import '../utils/iterable_x.dart';
 import 'messenger_store.dart';
 
 class AppController extends ChangeNotifier {
-  AppController(this._store);
+  AppController(this._store) {
+    _store.addListener(_onStoreChanged);
+  }
 
   final MessengerStore _store;
   final Random _random = Random();
@@ -129,7 +132,10 @@ class AppController extends ChangeNotifier {
     final me = currentUser;
     if (me == null) return;
     if (avatarData != null) {
-      _assertInlineImageSize(avatarData, 'Аватар слишком большой для хранения в Firestore. Выберите изображение поменьше.');
+      _assertInlineImageSize(
+        avatarData,
+        'Аватар слишком большой для хранения в Firestore. Выберите изображение поменьше.',
+      );
     }
     final updated = me.copyWith(
       name: name.trim().isEmpty ? me.name : name.trim(),
@@ -214,7 +220,10 @@ class AppController extends ChangeNotifier {
       throw MessengerException('Введите сообщение или добавьте изображение.');
     }
     if (imageData != null) {
-      _assertInlineImageSize(imageData, 'Изображение слишком большое для хранения в Firestore. Выберите изображение поменьше.');
+      _assertInlineImageSize(
+        imageData,
+        'Изображение слишком большое для хранения в Firestore. Выберите изображение поменьше.',
+      );
     }
     final dialog = _dialogById(dialogId);
     if (dialog == null) throw MessengerException('Диалог не найден.');
@@ -260,8 +269,6 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> deleteDialog(String dialogId) async {
-    final dialog = _dialogById(dialogId);
-    if (dialog == null) return;
     await _store.deleteDialog(dialogId);
     notifyListeners();
   }
@@ -296,6 +303,10 @@ class AppController extends ChangeNotifier {
     );
   }
 
+  void _onStoreChanged() {
+    notifyListeners();
+  }
+
   String _generateId(String prefix) {
     final timePart = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
     final randomPart = [
@@ -322,6 +333,13 @@ class AppController extends ChangeNotifier {
       throw MessengerException(message);
     }
   }
+
+  @override
+  void dispose() {
+    _store.removeListener(_onStoreChanged);
+    _store.dispose();
+    super.dispose();
+  }
 }
 
 class MessengerException implements Exception {
@@ -331,10 +349,6 @@ class MessengerException implements Exception {
 
   @override
   String toString() => message;
-}
-
-extension FirstOrNullX<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
 }
 
 extension StringAvatarX on String {

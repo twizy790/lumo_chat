@@ -21,10 +21,22 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final controller = AppScope.of(context);
     final unread = controller.totalUnreadCount;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_titleForIndex(_index)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_titleForIndex(_index)),
+            Text(
+              _subtitleForIndex(_index),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
+        ),
         actions: [
           if (unread > 0)
             Padding(
@@ -32,22 +44,25 @@ class _HomeShellState extends State<HomeShell> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
+                  color: isDark ? const Color(0xFF241138) : Colors.white,
                   borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF35204F) : const Color(0xFFE9D5FF),
+                  ),
                 ),
                 alignment: Alignment.center,
                 child: Text('Новых: $unread'),
               ),
             ),
           IconButton(
-            tooltip: 'Тема',
+            tooltip: 'Сменить тему',
             onPressed: () async {
               await controller.setThemeMode(
                 Theme.of(context).brightness == Brightness.dark ? ThemeMode.light : ThemeMode.dark,
               );
             },
             icon: Icon(
-              Theme.of(context).brightness == Brightness.dark ? Icons.dark_mode : Icons.light_mode,
+              Theme.of(context).brightness == Brightness.dark ? Icons.light_mode : Icons.dark_mode,
             ),
           ),
           PopupMenuButton<String>(
@@ -87,6 +102,14 @@ class _HomeShellState extends State<HomeShell> {
       0 => 'Диалоги',
       1 => 'Поиск',
       _ => 'Профиль',
+    };
+  }
+
+  String _subtitleForIndex(int index) {
+    return switch (index) {
+      0 => 'Ваши чаты и последние сообщения',
+      1 => 'Поиск собеседников по имени и email',
+      _ => 'Настройки аккаунта и внешний вид',
     };
   }
 }

@@ -12,8 +12,14 @@ class SectionCard extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1029) : Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          colors: isDark
+              ? const [Color(0xFF1A1029), Color(0xFF221235)]
+              : const [Colors.white, Color(0xFFFCFAFF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         border: Border.all(
           color: isDark ? const Color(0xFF35204F) : const Color(0xFFE9D5FF),
         ),
